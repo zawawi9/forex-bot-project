@@ -40,6 +40,8 @@ forex-bot-project/
 └── requirements.txt          # Library dependencies
 ```
 
+---
+
 ## 🚀 Cara Instalasi
 #### 1. Clone Repository ini
 ```
@@ -64,5 +66,8 @@ GEMINI_API_KEY=your_key_here
 ```
 python main.py
 ```
+
+---
+
 # ⚠️ Disclaimer
 Alat ini dibuat hanya untuk tujuan edukasi dan membantu analisis data. Keputusan trading sepenuhnya berada di tangan pengguna. Pastikan anda memahami risiko trading forex sebelum melakukan eksekusi di akun rill.
