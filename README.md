@@ -1,20 +1,23 @@
-# 📊 Forex Market Context & Risk Awareness Tool
+# 📈 Forex Alpha Context Bot
 
-Bot Telegram berbasis Python yang dirancang untuk membantu trader mengklasifikasikan kondisi pasar (Market Regime) dan memantau risiko fundamental secara otomatis. 
-
-Berbeda dengan bot trading biasa, alat ini **bukanlah alat prediksi (signal bot)**, melainkan alat bantu navigasi untuk memahami bias arah, kekuatan tren, dan volatilitas pasar.
+Bot Telegram asisten trading yang menggabungkan Analisis Teknikal (H4) dan Kalender Ekonomi Fundamental (WIB) secara real-time.
 
 ---
 
-## 🛠 Fitur Utama
+## ✨ Fitur Utama
+- **Technical Analysis (`/cek`)**: Mengklasifikasi kondisi market XAUUSD & EURUSD menggunakan EMA 30/60, ADX, dan ATR pada timeframe H4.
+- **Economic Calendar (`/news`)**: Menampilkan jadwal berita High Impact (Merah) dari Forex Factory yang otomatis dikonversi ke zona waktu **WIB**.
+- **Trading Recommendations**: Memberikan saran manajemen risiko sebelum, saat, dan sesudah berita penting muncul.
+- **Modular Structure**: Kode rapi dengan pemisahan logika indikator, berita, dan bot utama.
 
-- **Market State Classifier**: Mengklasifikasikan kondisi pasar menggunakan indikator teknikal:
-  - **Directional Bias**: Menggunakan EMA 30 & EMA 60 (Strategy Madro H4).
-  - **Trend Strength**: Menggunakan Average Directional Index (ADX 14).
-  - **Volatility Measurement**: Menggunakan Average True Range (ATR 14).
-- **Risk Event Monitor**: Mendeteksi jadwal rilis berita *high-impact* (NFP, FOMC, CPI) untuk memberikan peringatan dini (Risk Window).
-- **AI-Powered Context**: Mengintegrasikan Google Gemini AI untuk merangkum dampak fundamental terhadap teknikal.
-- **Support Multiple Pairs**: Fokus pada XAUUSD (Gold) dan EURUSD pada timeframe H4.
+---
+
+## 🛠️ Teknologi & Library
+- [Python 3.10+](https://www.python.org/)
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) - Interface Bot
+- [yfinance](https://github.com/ranaroussi/yfinance) - Data Market Real-time
+- [pandas-ta](https://github.com/twopirllc/pandas-ta) - Indikator Teknikal
+- [pytz](https://pythonhosted.org/pytz/) - Konversi Zona Waktu WIB
 
 ---
 
@@ -34,7 +37,6 @@ forex-bot-project/
 ├── scripts/
 │   ├── technical_analysis.py  # Logika perhitungan ADX, ATR, EMA
 │   ├── risk_manager.py       # Scraping kalender ekonomi
-│   └── ai_engine.py          # Integrasi Gemini AI
 ├── main.py                   # Entry point Bot Telegram
 ├── .env                      # API Keys (Hidden)
 └── requirements.txt          # Library dependencies
@@ -60,7 +62,6 @@ pip install -r requirements.txt
 #### 4.Konfigurasi API Keys Buat file .env dan masukkan token Anda:
 ```
 TELEGRAM_TOKEN=your_token_here
-GEMINI_API_KEY=your_key_here
 ```
 #### 5.Jalankan Bot
 ```
