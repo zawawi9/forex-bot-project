@@ -1,58 +1,14 @@
 import os
-import yfinance as yf
-import pandas_ta as ta
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from scripts.technical_analysis import get_market_context
+from scripts.risk_manager import get_risk_events
 
 load_dotenv()
 
-# --- MODULE 1: TECHNICAL CLASSIFIER ---
-def get_market_context(symbol):
-    df = yf.download(symbol, interval="4h", period="1mo", progress=False)
-    if df.empty or len(df) < 60: return None
-
-    # Indikator sesuai kesimpulan baru
-    df['EMA30'] = ta.ema(df['Close'], length=30)
-    df['EMA60'] = ta.ema(df['Close'], length=60)
-    df['ADX'] = ta.adx(df['High'], df['Low'], df['Close'], length=14)['ADX_14']
-    df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-    
-    # Logika Klasifikasi (Bukan Prediksi)
-    last = df.iloc[-1]
-    
-    # 1. Directional Bias
-    bias = "BULLISH" if last['EMA30'] > last['EMA60'] else "BEARISH"
-    
-    # 2. Trend Strength (ADX)
-    adx_val = last['ADX']
-    if adx_val < 20: strength = "WEAK/SIDEWAYS"
-    elif 20 <= adx_val < 40: strength = "HEALTHY TREND"
-    else: strength = "OVEREXTENDED"
-    
-    # 3. Market Regime
-    regime = "TRENDING" if adx_val > 25 else "RANGING/CHOPPY"
-
-    return {
-        "bias": bias,
-        "strength": strength,
-        "regime": regime,
-        "atr": round(last['ATR'], 2)
-    }
-
-# --- MODULE 2: RISK MONITOR (Simple Version) ---
-# Untuk tahap awal, kita buat list manual atau simulasi scraping
-def get_risk_events():
-    # Nantinya fungsi ini akan melakukan scraping ke ForexFactory
-    return [
-        {"event": "NFP (USD)", "time": "20:30 WIB", "impact": "High"},
-        {"event": "FOMC Meeting", "time": "02:00 WIB", "impact": "High"}
-    ]
-
-# --- MODULE 3: TELEGRAM HANDLERS ---
 async def cek_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📊 Mengklasifikasi Kondisi Market...")
-    
     pairs = {"GOLD": "GC=F", "EURUSD": "EURUSD=X"}
     response = "🔍 **MARKET STATE REPORT**\n\n"
     
@@ -64,15 +20,61 @@ async def cek_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response += f"• Strength: {ctx['strength']}\n"
             response += f"• Regime: {ctx['regime']}\n"
             response += f"• ATR: {ctx['atr']}\n\n"
+        else:
+            response += f"**{name}**: Data tidak tersedia (Market Close).\n\n"
             
-    response += "⚠️ **RISK MONITOR**\n"
-    for e in get_risk_events():
-        response += f"• {e['event']} - {e['time']} ({e['impact']})\n"
-        
+    await update.message.reply_text(response, parse_mode='Markdown')
+
+async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏳ Menyusun rekomendasi trading & jadwal news...")
+    events = get_risk_events()
+    
+    if not events:
+        await update.message.reply_text("📭 Tidak ada berita High Impact terdeteksi.")
+        return
+
+    response = "🗓 **TRADING PLAN & NEWS CONTEXT**\n"
+    response += "━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for e in events:
+        # Tambahkan sedikit konteks otomatis berdasarkan nama berita
+        context_msg = ""
+        if e['currency'] == 'EUR':
+            context_msg = "Berita zona Euro. Berdampak langsung pada volatilitas EURUSD."
+        elif "FOMC" in e['event'] or "Federal Funds Rate" in e['event']:
+            context_msg = "Suku bunga USD. Volatilitas ekstrim pada Gold & Pair USD."
+        elif "NFP" in e['event'] or "Unemployment" in e['event']:
+            context_msg = "Data tenaga kerja. Menentukan kekuatan ekonomi AS."
+        elif "CPI" in e['event'] or "Inflation" in e['event']:
+            context_msg = "Data inflasi. Sangat krusial untuk arah trend jangka panjang."
+        else:
+            context_msg = "Berita High Impact. Potensi slippage dan spread melebar."
+
+        response += f"🕒 `{e['time']}` | **{e['currency']}**\n"
+        response += f"🏆 **{e['event']}**\n"
+        response += f"ℹ️ _{context_msg}_\n"
+        response += f"📅 {e['date']}\n"
+        response += "──────────────────\n"
+    
+    # BAGIAN REKOMENDASI (Ini yang kamu butuhkan)
+    response += "\n💡 **REKOMENDASI BOT:**\n"
+    response += "1. **Pre-News (30 Menit Sebelum):** Close posisi yang floating atau amankan dengan SL Plus. Jangan OP baru!\n"
+    response += "2. **At News (0-5 Menit):** Hindari Market Execution. Spread bisa melebar 10-50 pips.\n"
+    response += "3. **Post-News (15-30 Menit Setelah):** Tunggu 'Price Action' konfirmasi. Jangan lawan arus (Revenge Trade).\n"
+    response += "4. **Pair Fokus:** Perhatikan XAUUSD jika news berkaitan dengan USD.\n"
+    
+    response += "\n⚠️ *Trading saat news memiliki risiko tinggi.*"
+    
     await update.message.reply_text(response, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
-    app.add_handler(CommandHandler('cek', cek_context))
-    print("Bot Market Context Aktif!")
-    app.run_polling()
+    token = os.getenv("TELEGRAM_TOKEN")
+    
+    if not token:
+        print("Error: TELEGRAM_TOKEN tidak ditemukan di file .env")
+    else:
+        app = ApplicationBuilder().token(token).build()
+        app.add_handler(CommandHandler('cek', cek_context))
+        app.add_handler(CommandHandler('news', news_command))
+        print("Bot Market Context Aktif!")
+        app.run_polling()

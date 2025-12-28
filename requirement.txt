@@ -3,4 +3,6 @@ pandas_ta
 yfinance
 python-dotenv
 python-telegram-bot
-google-generativeai
+requests
+pytz
+lxml
