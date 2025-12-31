@@ -1,5 +1,7 @@
 import os, pytz
 from datetime import datetime, time, timedelta
+from flask import Flask
+from threading import Thread
 from dotenv import load_dotenv
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, 
@@ -15,6 +17,22 @@ from scripts.risk_manager import get_risk_events
 load_dotenv()
 WIB = pytz.timezone('Asia/Jakarta')
 
+# --- SERVER FOR RENDER HEALTH CHECK ---
+app_flask = Flask('')
+
+@app_flask.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_flask():
+    # Render biasanya menggunakan port 8080 atau 10000
+    port = int(os.environ.get('PORT', 8080))
+    app_flask.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
 # --- STATE TRACKING ---
 last_market_states = {} 
 last_prices = {}        
@@ -22,7 +40,6 @@ focus_mode = "NORMAL"
 
 # --- 1. SETTING TOMBOL MENU POJOK KIRI ---
 async def post_init(application: Application):
-    """Mendaftarkan perintah ke tombol 'Menu' di pojok kiri bawah."""
     commands = [
         BotCommand("start", "Mulai/Restart Bot"),
         BotCommand("cek", "Analisis Market Saat Ini"),
@@ -51,7 +68,7 @@ async def generate_market_report():
             response += f"❌ <b>{name}</b>: Data belum stabil.\n\n"
     return response
 
-# --- 3. FUNGSI NEWS COMMAND (HTML MODE) ---
+# --- 3. FUNGSI NEWS COMMAND ---
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = update.message if update.message else update.callback_query.message
     events = get_risk_events()
@@ -76,14 +93,12 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response += "\n⚠️ <i>Trading saat news memiliki risiko tinggi.</i>"
     await target.reply_text(response, parse_mode='HTML')
 
-# --- 4. MENU KEYBOARD LAYOUT (FIXED ERROR) ---
+# --- 4. MENU KEYBOARD LAYOUT ---
 def get_main_menu():
-    """Membuat menu tombol di bawah layar."""
     keyboard = [
         [KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")],
         [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode"), KeyboardButton("🔕 Silent Mode")]
     ]
-    # 'persistent' dihapus karena sering menyebabkan TypeError di versi library tertentu
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # --- 5. AUTOMATION JOBS ---
@@ -170,18 +185,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     token = os.getenv("TELEGRAM_TOKEN")
     if token:
-        # Menghubungkan post_init untuk setting menu perintah di pojok kiri bawah
         app = ApplicationBuilder().token(token).post_init(post_init).build()
         jq = app.job_queue
         
-        # Penjadwalan Tugas
         jq.run_daily(daily_briefing_job, time=time(hour=7, minute=0, tzinfo=WIB))
         jq.run_repeating(news_monitor_job, interval=60)
         jq.run_repeating(intelligence_monitor_job, interval=60)
         jq.run_daily(session_alert_job, time=time(hour=15, minute=0, tzinfo=WIB))
         jq.run_daily(session_alert_job, time=time(hour=20, minute=0, tzinfo=WIB))
 
-        # Registrasi Handler
         app.add_handler(CommandHandler('start', start))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu_clicks))
         app.add_handler(CallbackQueryHandler(button_handler))
@@ -189,4 +201,7 @@ if __name__ == '__main__':
         app.add_handler(CommandHandler('news', news_command))
         
         print("🔥 Bot HTML-Professional Mode Aktif!")
+        # Jalankan server web untuk keep-alive
+        keep_alive()
+        # Jalankan polling bot
         app.run_polling()
