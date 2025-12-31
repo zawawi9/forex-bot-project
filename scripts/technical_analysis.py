@@ -1,42 +1,68 @@
 import yfinance as yf
-import pandas_ta as ta
+import pandas as ta
+import pandas_ta as ta_lib
 
 def get_market_context(symbol):
-    # 1. Ambil data
-    df = yf.download(symbol, interval="4h", period="1mo", progress=False)
-    
-    # Cek apakah data kosong atau terlalu sedikit
-    if df is None or df.empty or len(df) < 30:
-        return None
-
     try:
-        # 2. Hitung Indikator
-        df['EMA30'] = ta.ema(df['Close'], length=30)
-        df['EMA60'] = ta.ema(df['Close'], length=60)
-        adx_df = ta.adx(df['High'], df['Low'], df['Close'], length=14)
-        if adx_df is None or adx_df.empty:
+        # 1. Ambil Data H4
+        df_h4 = yf.download(symbol, interval="4h", period="1mo", progress=False)
+        df_d1 = yf.download(symbol, interval="1d", period="6mo", progress=False)
+
+        if df_h4.empty or df_d1.empty:
             return None
-            
-        df['ADX'] = adx_df['ADX_14']
-        df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-        last = df.dropna().iloc[-1]
+
+        # Bersihkan Multi-Index jika ada
+        if isinstance(df_h4.columns, ta.MultiIndex):
+            df_h4.columns = df_h4.columns.get_level_values(0)
+            df_d1.columns = df_d1.columns.get_level_values(0)
+
+        # 2. Perhitungan Indikator H4
+        df_h4['EMA30'] = ta_lib.ema(df_h4['Close'], length=30)
+        df_h4['EMA60'] = ta_lib.ema(df_h4['Close'], length=60)
+        adx = ta_lib.adx(df_h4['High'], df_h4['Low'], df_h4['Close'], length=14)
+        atr = ta_lib.atr(df_h4['High'], df_h4['Low'], df_h4['Close'], length=14)
+
+        df_d1['EMA50'] = ta_lib.ema(df_d1['Close'], length=50)
         
-        # 3. Klasifikasi
-        bias = "BULLISH" if last['EMA30'] > last['EMA60'] else "BEARISH"
-        adx_val = last['ADX']
+        # 4. Ambil Data Terakhir
+        last_h4 = df_h4.iloc[-1]
+        last_d1 = df_d1.iloc[-1]
+        current_price = last_h4['Close']
+
+        bias_h4 = "BULLISH" if last_h4['EMA30'] > last_h4['EMA60'] else "BEARISH"
+        bias_d1 = "BULLISH" if current_price > last_d1['EMA50'] else "BEARISH"
         
-        if adx_val < 20: strength = "WEAK/SIDEWAYS"
-        elif 20 <= adx_val < 40: strength = "HEALTHY TREND"
-        else: strength = "OVEREXTENDED"
-        
-        regime = "TRENDING" if adx_val > 25 else "RANGING/CHOPPY"
+        alignment = "✅ ALIGNED" if bias_h4 == bias_d1 else "⚠️ CONTRA (Hati-hati)"
+
+        adx_val = adx.iloc[-1]['ADX_14']
+        if adx_val < 20:
+            regime = "COMPRESSION (Sideways)"
+        elif adx_val > 25:
+            regime = "EXPANSION (Trending)"
+        else:
+            regime = "TRANSITION"
+
+        day_range = last_h4['High'] - last_h4['Low'] # Sederhana untuk tes
+        atr_val = atr.iloc[-1]
+        volatility_status = "NORMAL" if day_range < (atr_val * 2) else "EXTREME"
+
+        if symbol == "GC=F":
+            display_price = current_price 
+            decimal_places = 2
+        else:
+            display_price = current_price
+            decimal_places = 5
+
+        formatted_price = f"{display_price:.{decimal_places}f}"
 
         return {
-            "bias": bias,
-            "strength": strength,
+            "price": formatted_price,
+            "bias_h4": bias_h4,
+            "alignment": alignment,
             "regime": regime,
-            "atr": round(last['ATR'], 4)
+            "vol_status": volatility_status,
+            "adx": f"{adx_val:.1f}"
         }
     except Exception as e:
-        print(f"Error calculating indicators for {symbol}: {e}")
+        print(f"Error di technical_analysis: {e}")
         return None

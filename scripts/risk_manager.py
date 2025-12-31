@@ -9,36 +9,33 @@ def get_risk_events():
         response = requests.get(url, timeout=15)
         if response.status_code != 200:
             return []
-
         data = response.json()
-        risk_list = []
+        upcoming_events = []
         wib = pytz.timezone('Asia/Jakarta')
-
+        now_wib = datetime.now(wib)
         for event in data:
             currency = event.get('country')
             impact = event.get('impact')
-            
-            if event.get('impact') in ['High', 'Medium'] and event.get('country') in ['USD', 'EUR']:
+            if impact in ['High', 'Medium'] and currency in ['USD', 'EUR']:
                 try:
                     raw_date = event.get('date')
                     clean_date_str = raw_date[:19]
                     dt_obj = datetime.strptime(clean_date_str, "%Y-%m-%dT%H:%M:%S")
-                    
-                    # Koreksi WIB (+12 Jam dari data API)
-                    dt_wib = dt_obj + timedelta(hours=12)
-                    
-                    jam_tampil = dt_wib.strftime("%H:%M")
-                    tgl_tampil = dt_wib.strftime("%d %b %Y")
+                    dt_utc = pytz.utc.localize(dt_obj)
+                    dt_wib = dt_utc.astimezone(wib)
+                    if dt_wib > now_wib:
+                        upcoming_events.append({
+                            "event": event.get('title'),
+                            "time": dt_wib.strftime("%H:%M"),
+                            "date": dt_wib.strftime("%d %b %Y"),
+                            "currency": currency,
+                            "datetime_obj": dt_wib
+                        })
                 except:
-                    jam_tampil = "Cek Web"; tgl_tampil = "N/A"
+                    continue
+        upcoming_events.sort(key=lambda x: x['datetime_obj'])
+        return upcoming_events[:8]
 
-                risk_list.append({
-                    "event": event.get('title'),
-                    "time": jam_tampil,
-                    "date": tgl_tampil,
-                    "currency": currency
-                })
-        return risk_list[:8]
     except Exception as e:
         print(f"Error fetching news: {e}")
         return []
