@@ -26,7 +26,7 @@ def home():
 
 def run_flask():
     # Render biasanya menggunakan port 8080 atau 10000
-    port = int(os.environ.get('PORT', 8080))
+    port = int(os.environ.get('PORT', 7860))
     app_flask.run(host='0.0.0.0', port=port)
 
 def keep_alive():
