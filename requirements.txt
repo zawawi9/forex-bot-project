@@ -1,12 +1,15 @@
 annotated-types==0.7.0
 anyio==4.12.0
 beautifulsoup4==4.14.3
+blinker==1.9.0
 cachetools==6.2.4
 certifi==2025.11.12
 cffi==2.0.0
 charset-normalizer==3.4.4
+click==8.3.1
 colorama==0.4.6
 curl_cffi==0.13.0
+Flask==3.1.2
 frozendict==2.4.7
 google-ai-generativelanguage==0.6.15
 google-api-core==2.28.1
@@ -22,7 +25,10 @@ httpcore==1.0.9
 httplib2==0.31.0
 httpx==0.28.1
 idna==3.11
+itsdangerous==2.2.0
+Jinja2==3.1.6
 llvmlite==0.44.0
+MarkupSafe==3.0.3
 multitasking==0.0.12
 numba==0.61.2
 numpy==2.2.6
@@ -53,4 +59,5 @@ tzdata==2025.3
 uritemplate==4.2.0
 urllib3==2.6.2
 websockets==15.0.1
+Werkzeug==3.1.4
 yfinance==1.0
