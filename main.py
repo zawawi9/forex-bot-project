@@ -167,6 +167,7 @@ async def handle_menu_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif "Mode" in t: await update.message.reply_text(f"🎯 Mode: <b>{t.split()[0]}</b>", parse_mode='HTML')
 
 # --- 7. MAIN ---
+# --- 7. MAIN ---
 if __name__ == '__main__':
     token = os.getenv("TELEGRAM_TOKEN")
     if token:
@@ -175,20 +176,36 @@ if __name__ == '__main__':
         app = ApplicationBuilder().token(token).request(t_req).post_init(post_init).build()
         
         jq = app.job_queue
-        # Morning Briefing 07:00 WIB
-        jq.run_daily(lambda c: c.bot.send_message(os.getenv("YOUR_CHAT_ID"), "🌅 <b>MORNING BRIEFING</b>\n" + t_module.strftime("%H:%M:%S")), time=time(hour=7, minute=0, tzinfo=WIB))
-        # Monitor News (Spike, H-3, H-15m)
+
+        # FIX 1: Gunakan fungsi async formal untuk Morning Briefing
+        async def run_morning_briefing(context: ContextTypes.DEFAULT_TYPE):
+            chat_id = os.getenv("YOUR_CHAT_ID")
+            report = await generate_market_report("MORNING BRIEFING")
+            await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
+
+        # Penjadwalan
+        jq.run_daily(run_morning_briefing, time=time(hour=7, minute=0, tzinfo=WIB))
         jq.run_repeating(news_monitor_job, interval=60)
         jq.run_repeating(intelligence_monitor_job, interval=60)
         jq.run_repeating(session_alert_job, interval=3600)
-        # Weekly Report: Jumat jam 23:00 WIB
         jq.run_daily(weekly_report_job, time=time(hour=23, minute=0, tzinfo=WIB), days=(4,))
 
-        app.add_handler(CommandHandler('start', lambda u,c: u.message.reply_text("🚀 <b>Alpha Pro Online</b>", reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")], [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode")]], resize_keyboard=True), parse_mode='HTML')))
+        # FIX 2: Perbaikan Command Handlers (Hapus Lambda yang bermasalah)
+        async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            keyboard = [[KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")], 
+                        [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode")]]
+            await update.message.reply_text(
+                "🚀 <b>Alpha Pro Online</b>", 
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), 
+                parse_mode='HTML'
+            )
+
+        app.add_handler(CommandHandler('start', start_command))
         app.add_handler(CommandHandler('news', news_command))
-        app.add_handler(CommandHandler('cek', lambda u,c: u.message.reply_text(generate_market_report(), parse_mode='HTML')))
+        app.add_handler(CommandHandler('cek', cek_context)) # Langsung pakai cek_context yang sudah ada
+        
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu_clicks))
         app.add_handler(CallbackQueryHandler(button_handler))
         
-        print("🔥 Bot Final Strategic Mode Aktif!")
+        print("🔥 Bot Alpha Pro (Fixed & Fixed) Aktif!")
         app.run_polling(bootstrap_retries=-1)
