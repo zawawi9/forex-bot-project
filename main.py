@@ -19,33 +19,31 @@ from scripts.risk_manager import get_risk_events
 load_dotenv()
 WIB = pytz.timezone('Asia/Jakarta')
 
-# --- 1. LOGIKA STRATEGI (MENGIKUTI SARAN IDEAL) ---
+# --- 1. PERFORMANCE & STRATEGY ENGINE ---
 def get_session_name():
-    """Menentukan sesi market berdasarkan jam WIB saat ini."""
     hour = datetime.now(WIB).hour
     if 7 <= hour < 14: return "Asia"
     elif 14 <= hour < 21: return "London"
     else: return "New York"
 
+def calculate_performance(name, current_price, open_price):
+    change = current_price - open_price
+    if "GOLD" in name.upper() or "XAU" in name.upper():
+        return f"{change:+.2f} Pts"
+    return f"{(change * 10000):+.1f} Pips"
+
 def derive_action(ctx):
-    """Logika Rekomendasi Aksi."""
     regime = ctx.get('regime', '').upper()
     bias = ctx.get('bias_h4', '').upper()
-    vol_status = ctx.get('vol_status', '').upper()
-    
-    if "EXHAUSTED" in vol_status:
-        return "❌ WAIT / NO ENTRY (Market Jenuh)"
-    
+    vol = ctx.get('vol_status', '').upper()
+    if "EXHAUSTED" in vol: return "❌ WAIT / NO ENTRY (Jenuh)"
     if "EXPANSION" in regime:
-        if "BULLISH" in bias: return "✅ BUY ONLY (Trending Up)"
-        if "BEARISH" in bias: return "✅ SELL ONLY (Trending Down)"
-    
-    if "TRANSITION" in regime:
-        return "🔄 SCALPING OK (Mainkan Range)"
-        
-    return "👀 MONITOR ONLY (Neutral)"
+        if "BULLISH" in bias: return "✅ BUY ONLY (Trending)"
+        if "BEARISH" in bias: return "✅ SELL ONLY (Trending)"
+    if "TRANSITION" in regime: return "🔄 SCALPING OK (Range)"
+    return "👀 MONITOR ONLY"
 
-# --- 2. SERVER HEALTH CHECK (HUGGING FACE/RENDER) ---
+# --- 2. SERVER KEEP-ALIVE ---
 app_flask = Flask('')
 @app_flask.route('/')
 def home(): return "Bot is alive and monitoring market!"
@@ -59,174 +57,138 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 3. STATE TRACKING ---
-last_market_states = {} 
-last_prices = {}        
-focus_mode = "NORMAL"   
-
-# --- 4. SETTING TOMBOL MENU POJOK KIRI ---
-async def post_init(application: Application):
-    commands = [
-        BotCommand("start", "Mulai/Restart Bot"),
-        BotCommand("cek", "Analisis Market Saat Ini"),
-        BotCommand("news", "Jadwal Berita High Impact"),
-    ]
-    await application.bot.set_my_commands(commands)
-
-# --- 5. FUNGSI GENERATE REPORT (VERSI WARAS/IDEAL) ---
-async def generate_market_report():
+# --- 3. MASTER REPORT GENERATOR ---
+async def generate_market_report(title="MARKET INTELLIGENCE REPORT"):
     pairs = {"GOLD (XAUUSD)": "GC=F", "EURUSD": "EURUSD=X"}
     session = get_session_name()
-    
-    response = "<b>🔍 MARKET STRATEGY REPORT</b>\n"
-    response += f"🕒 Session: <b>{session}</b>\n"
-    response += "━━━━━━━━━━━━━━━━━━\n\n"
-    
+    response = f"<b>🔍 {title}</b>\n🕒 Session: <b>{session}</b>\n━━━━━━━━━━━━━━━━━━\n\n"
     for name, sym in pairs.items():
         ctx = get_market_context(sym)
         if ctx:
-            action = derive_action(ctx) # Ambil rekomendasi aksi
+            curr = float(ctx['price'])
+            perf = calculate_performance(name, curr, float(ctx.get('open_price', curr)))
+            action = derive_action(ctx)
             response += f"🏆 <b>{name}</b>\n"
-            response += f"Regime      : {ctx['regime']}\n"
-            response += f"Volatility  : {ctx['vol_status']}\n"
-            response += f"Bias        : {ctx['bias_h4']}\n"
-            response += f"Session     : {session}\n"
-            response += f"Price       : <code>{ctx['price']}</code>\n\n"
+            response += f"Perf (D)   : <b>{perf}</b>\n"
+            response += f"Score      : {ctx['score']}\n"
+            response += f"Bias H4    : {ctx['bias_h4']}\n"
+            response += f"Regime     : {ctx['regime']}\n"
+            response += f"Volatility : {ctx['vol_status']}\n"
+            response += f"Price      : <code>{ctx['price']}</code>\n\n"
             response += f"🎯 <b>Action:</b>\n<code>{action}</code>\n"
             response += "──────────────────\n\n"
-        else:
-            response += f"❌ <b>{name}</b>: Data belum stabil.\n\n"
+        else: response += f"❌ <b>{name}</b>: Data Offline.\n\n"
     return response
 
-# --- 6. FUNGSI NEWS COMMAND ---
+# --- 4. TEMPLATE COMMAND /NEWS ---
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target = update.message if update.message else update.callback_query.message
     events = get_risk_events()
+    target = update.message if update.message else update.callback_query.message
     if not events:
-        await target.reply_text("📭 Tidak ada berita High Impact terdeteksi.", parse_mode='HTML')
+        await target.reply_text("📭 Tidak ada berita High Impact.", parse_mode='HTML')
         return
-
-    response = "<b>🗓 TRADING PLAN & NEWS CONTEXT</b>\n"
+    response = "<b>🗓 TRADING PLAN & NEWS</b>\n"
     response += "━━━━━━━━━━━━━━━━━━\n\n"
     for e in events:
         response += f"🕒 <code>{e['time']}</code> | <b>{e['currency']}</b>\n"
         response += f"🏆 <b>{e['event']}</b>\n"
         response += f"📅 {e['date']}\n"
         response += "──────────────────\n"
-    
-    response += "\n⚠️ <i>Trading saat news memiliki risiko tinggi.</i>"
+    response += "\n⚠️ <i>Slippage & spread berpotensi melebar.</i>"
     await target.reply_text(response, parse_mode='HTML')
 
-# --- 7. MENU KEYBOARD LAYOUT ---
-def get_main_menu():
-    keyboard = [
-        [KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")],
-        [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode"), KeyboardButton("🔕 Silent Mode")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-# --- 8. AUTOMATION JOBS (FULL PACK) ---
-async def news_monitor_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = os.getenv("YOUR_CHAT_ID")
-    events = get_risk_events()
-    now = datetime.now(WIB)
-    for e in events:
-        diff = (e['datetime_obj'] - now).total_seconds()
-        if 840 <= diff <= 900:
-            msg = f"⚠️ <b>NEWS ALERT: 15 MENIT LAGI!</b>\n\n🏆 Event: <b>{e['event']}</b>"
-            await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
-
-async def daily_briefing_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = os.getenv("YOUR_CHAT_ID")
-    if chat_id:
-        report = await generate_market_report()
-        await context.bot.send_message(chat_id=chat_id, text=f"🌅 <b>MORNING BRIEFING</b>\n\n{report}", parse_mode='HTML')
-
-async def session_alert_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = os.getenv("YOUR_CHAT_ID")
-    if not chat_id or focus_mode == "SILENT": return
-    h = datetime.now(WIB).hour
-    msg = ""
-    if h == 15: msg = "🚀 <b>LONDON SESSION OPEN</b>\nPerhatikan Liquidity Grab Asia!"
-    elif h == 20: msg = "🇺🇸 <b>NEW YORK SESSION OPEN</b>\nHigh Volatility Expected!"
-    if msg: await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
-
+# --- 5. AUTOMATION JOBS (THE FULL SQUAD) ---
 async def intelligence_monitor_job(context: ContextTypes.DEFAULT_TYPE):
-    global last_prices
     chat_id = os.getenv("YOUR_CHAT_ID")
-    if not chat_id or focus_mode == "SILENT": return
     pairs = {"GOLD": "GC=F", "EURUSD": "EURUSD=X"}
     for name, sym in pairs.items():
         ctx = get_market_context(sym)
         if not ctx: continue
-        curr_price = float(ctx['price'])
-        if name in last_prices:
-            diff = abs(curr_price - last_prices[name])
-            if diff > (5.0 if name == "GOLD" else 0.0050):
-                # Spike Alert Versi Waras
-                msg = f"🚨 <b>SPIKE ALERT</b>\n"
-                msg += f"Instrument : <b>{name}</b>\n"
-                msg += f"Magnitude  : <code>{diff:.2f}</code>\n"
-                msg += f"Status     : <b>HIGH RISK</b>\n\n"
-                msg += f"🎯 <b>Action:</b>\n<code>WAIT / NO ENTRY (Volatile)</code>"
-                await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
-        last_prices[name] = curr_price
+        curr = float(ctx['price'])
+        prev = context.bot_data.get(f"lp_{name}")
+        if prev and abs(curr - prev) > (5.0 if name == "GOLD" else 0.0050):
+            msg = f"🚨 <b>SPIKE ALERT: {name}</b>\nMagnitude: <code>{abs(curr-prev):.2f}</code>\nStatus: <b>HIGH RISK</b>\n\n🎯 <b>Action:</b>\n<code>WAIT / NO ENTRY</code>"
+            await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+        context.bot_data[f"lp_{name}"] = curr
 
-# --- 9. HANDLERS ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"🚀 <b>Bot Forex Alpha Strategis Aktif!</b>",
-        reply_markup=get_main_menu(),
-        parse_mode='HTML'
-    )
+async def session_alert_job(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = os.getenv("YOUR_CHAT_ID")
+    h = datetime.now(WIB).hour
+    if h in [14, 22, 4]: 
+        msg = f"🏁 <b>SESSION SUMMARY</b>\n{await generate_market_report('CLOSING REPORT')}"
+        await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+    elif h == 15: await context.bot.send_message(chat_id=chat_id, text="🚀 <b>LONDON OPEN</b>", parse_mode='HTML')
+    elif h == 20: await context.bot.send_message(chat_id=chat_id, text="🇺🇸 <b>NY OPEN</b>", parse_mode='HTML')
 
-async def handle_menu_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "🔍 Cek Market": await cek_context(update, context)
-    elif text == "📅 Jadwal News": await news_command(update, context)
-    elif "Mode" in text:
-        global focus_mode
-        focus_mode = text.split()[0].upper()
-        await update.message.reply_text(f"🎯 Mode: <b>{focus_mode}</b>", parse_mode='HTML')
+async def weekly_report_job(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = os.getenv("YOUR_CHAT_ID")
+    report = await generate_market_report("WEEKLY CLOSING SUMMARY")
+    await context.bot.send_message(chat_id=chat_id, text=f"📉 {report}", parse_mode='HTML')
 
-async def cek_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')],
-                [InlineKeyboardButton("📅 Cek News", callback_data='cek_news')]]
-    response = await generate_market_report()
-    target = update.message if update.message else update.callback_query.message
-    await target.reply_text(response, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+async def news_monitor_job(context: ContextTypes.DEFAULT_TYPE):
+    """Sistem Alert Berita: H-3 dan H-15 Menit."""
+    chat_id = os.getenv("YOUR_CHAT_ID")
+    events = get_risk_events()
+    now = datetime.now(WIB)
+    
+    for e in events:
+        diff = (e['datetime_obj'] - now).total_seconds()
+        
+        # ALERT H-3 BERITA (Perkiraan 259200 detik)
+        if 259140 <= diff <= 259200:
+            msg = f"📅 <b>UPCOMING NEWS (H-3)</b>\n"
+            msg += f"━━━━━━━━━━━━━━━━━━\n"
+            msg += f"🏆 Event: <b>{e['event']}</b>\n"
+            msg += f"🕒 Waktu: <code>{e['time']}</code> WIB\n"
+            msg += f"📅 Tanggal: {e['date']}\n\n"
+            msg += f"<i>Siapkan trading plan kamu. High Volatility di depan!</i>"
+            await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+
+        # ALERT 15 MENIT SEBELUM RILIS
+        elif 840 <= diff <= 900:
+            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ <b>NEWS ALERT 15m</b>\n🏆 {e['event']}\n🕒 Jam: <code>{e['time']}</code> WIB", parse_mode='HTML')
+
+# --- 6. HANDLERS & NAVIGATION ---
+async def post_init(application: Application):
+    await application.bot.set_my_commands([BotCommand("start", "Mulai"), BotCommand("cek", "Analisis"), BotCommand("news", "Berita")])
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == 'refresh_harga':
         response = await generate_market_report()
-        await query.edit_message_text(response, parse_mode='HTML', 
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')],
-                                              [InlineKeyboardButton("📅 Cek News", callback_data='cek_news')]]))
+        await query.edit_message_text(response, parse_mode='HTML', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')]]))
     elif query.data == 'cek_news': await news_command(update, context)
 
-# --- 10. MAIN EXECUTION ---
+async def handle_menu_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = update.message.text
+    if t == "🔍 Cek Market": await update.message.reply_text(await generate_market_report(), parse_mode='HTML', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')]]))
+    elif t == "📅 Jadwal News": await news_command(update, context)
+    elif "Mode" in t: await update.message.reply_text(f"🎯 Mode: <b>{t.split()[0]}</b>", parse_mode='HTML')
+
+# --- 7. MAIN ---
 if __name__ == '__main__':
     token = os.getenv("TELEGRAM_TOKEN")
     if token:
-        # Menambah kestabilan jaringan dengan timeout
+        keep_alive()
         t_req = HTTPXRequest(connect_timeout=30, read_timeout=30)
         app = ApplicationBuilder().token(token).request(t_req).post_init(post_init).build()
         
         jq = app.job_queue
-        jq.run_daily(daily_briefing_job, time=time(hour=7, minute=0, tzinfo=WIB))
+        # Morning Briefing 07:00 WIB
+        jq.run_daily(lambda c: c.bot.send_message(os.getenv("YOUR_CHAT_ID"), "🌅 <b>MORNING BRIEFING</b>\n" + t_module.strftime("%H:%M:%S")), time=time(hour=7, minute=0, tzinfo=WIB))
+        # Monitor News (Spike, H-3, H-15m)
         jq.run_repeating(news_monitor_job, interval=60)
         jq.run_repeating(intelligence_monitor_job, interval=60)
-        jq.run_daily(session_alert_job, time=time(hour=15, minute=0, tzinfo=WIB))
-        jq.run_daily(session_alert_job, time=time(hour=20, minute=0, tzinfo=WIB))
+        jq.run_repeating(session_alert_job, interval=3600)
+        # Weekly Report: Jumat jam 23:00 WIB
+        jq.run_daily(weekly_report_job, time=time(hour=23, minute=0, tzinfo=WIB), days=(4,))
 
-        app.add_handler(CommandHandler('start', start))
+        app.add_handler(CommandHandler('start', lambda u,c: u.message.reply_text("🚀 <b>Alpha Pro Online</b>", reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")], [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode")]], resize_keyboard=True), parse_mode='HTML')))
+        app.add_handler(CommandHandler('news', news_command))
+        app.add_handler(CommandHandler('cek', lambda u,c: u.message.reply_text(generate_market_report(), parse_mode='HTML')))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu_clicks))
         app.add_handler(CallbackQueryHandler(button_handler))
-        app.add_handler(CommandHandler('cek', cek_context))
-        app.add_handler(CommandHandler('news', news_command))
         
-        print("🔥 Bot Mode Strategis (200+ Lines) Aktif!")
-        keep_alive()
+        print("🔥 Bot Final Strategic Mode Aktif!")
         app.run_polling(bootstrap_retries=-1)
