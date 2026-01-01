@@ -21,18 +21,21 @@ WIB = pytz.timezone('Asia/Jakarta')
 
 # --- 1. PERFORMANCE & STRATEGY ENGINE ---
 def get_session_name():
+    """Menentukan sesi market berdasarkan jam WIB."""
     hour = datetime.now(WIB).hour
     if 7 <= hour < 14: return "Asia"
     elif 14 <= hour < 21: return "London"
     else: return "New York"
 
 def calculate_performance(name, current_price, open_price):
+    """Kalkulasi Pips (Forex) atau Points (Gold)."""
     change = current_price - open_price
     if "GOLD" in name.upper() or "XAU" in name.upper():
         return f"{change:+.2f} Pts"
     return f"{(change * 10000):+.1f} Pips"
 
 def derive_action(ctx):
+    """Logika Rekomendasi Aksi (Versi Waras)."""
     regime = ctx.get('regime', '').upper()
     bias = ctx.get('bias_h4', '').upper()
     vol = ctx.get('vol_status', '').upper()
@@ -59,6 +62,7 @@ def keep_alive():
 
 # --- 3. MASTER REPORT GENERATOR ---
 async def generate_market_report(title="MARKET INTELLIGENCE REPORT"):
+    """Laporan Gabungan: Teknikal + Strategi + Performa."""
     pairs = {"GOLD (XAUUSD)": "GC=F", "EURUSD": "EURUSD=X"}
     session = get_session_name()
     response = f"<b>🔍 {title}</b>\n🕒 Session: <b>{session}</b>\n━━━━━━━━━━━━━━━━━━\n\n"
@@ -82,6 +86,7 @@ async def generate_market_report(title="MARKET INTELLIGENCE REPORT"):
 
 # --- 4. TEMPLATE COMMAND /NEWS ---
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Template berita dengan pemisah visual yang rapi."""
     events = get_risk_events()
     target = update.message if update.message else update.callback_query.message
     if not events:
@@ -130,43 +135,41 @@ async def news_monitor_job(context: ContextTypes.DEFAULT_TYPE):
     chat_id = os.getenv("YOUR_CHAT_ID")
     events = get_risk_events()
     now = datetime.now(WIB)
-    
     for e in events:
         diff = (e['datetime_obj'] - now).total_seconds()
-        
-        # ALERT H-3 BERITA (Perkiraan 259200 detik)
-        if 259140 <= diff <= 259200:
-            msg = f"📅 <b>UPCOMING NEWS (H-3)</b>\n"
-            msg += f"━━━━━━━━━━━━━━━━━━\n"
-            msg += f"🏆 Event: <b>{e['event']}</b>\n"
-            msg += f"🕒 Waktu: <code>{e['time']}</code> WIB\n"
-            msg += f"📅 Tanggal: {e['date']}\n\n"
-            msg += f"<i>Siapkan trading plan kamu. High Volatility di depan!</i>"
+        if 259140 <= diff <= 259200: # H-3
+            msg = f"📅 <b>UPCOMING NEWS (H-3)</b>\n━━━━━━━━━━━━━━━━━━\n🏆 Event: <b>{e['event']}</b>\n🕒 Waktu: <code>{e['time']}</code> WIB\n📅 Tanggal: {e['date']}"
             await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
-
-        # ALERT 15 MENIT SEBELUM RILIS
-        elif 840 <= diff <= 900:
+        elif 840 <= diff <= 900: # 15m
             await context.bot.send_message(chat_id=chat_id, text=f"⚠️ <b>NEWS ALERT 15m</b>\n🏆 {e['event']}\n🕒 Jam: <code>{e['time']}</code> WIB", parse_mode='HTML')
 
 # --- 6. HANDLERS & NAVIGATION ---
 async def post_init(application: Application):
     await application.bot.set_my_commands([BotCommand("start", "Mulai"), BotCommand("cek", "Analisis"), BotCommand("news", "Berita")])
 
+async def cek_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fungsi pusat untuk laporan market."""
+    response = await generate_market_report()
+    keyboard = [[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')],
+                [InlineKeyboardButton("📅 Cek News", callback_data='cek_news')]]
+    target = update.message if update.message else update.callback_query.message
+    await target.reply_text(response, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == 'refresh_harga':
         response = await generate_market_report()
-        await query.edit_message_text(response, parse_mode='HTML', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')]]))
+        await query.edit_message_text(response, parse_mode='HTML', 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')]]))
     elif query.data == 'cek_news': await news_command(update, context)
 
 async def handle_menu_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     t = update.message.text
-    if t == "🔍 Cek Market": await update.message.reply_text(await generate_market_report(), parse_mode='HTML', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh Harga", callback_data='refresh_harga')]]))
+    if t == "🔍 Cek Market": await cek_context(update, context)
     elif t == "📅 Jadwal News": await news_command(update, context)
     elif "Mode" in t: await update.message.reply_text(f"🎯 Mode: <b>{t.split()[0]}</b>", parse_mode='HTML')
 
-# --- 7. MAIN ---
 # --- 7. MAIN ---
 if __name__ == '__main__':
     token = os.getenv("TELEGRAM_TOKEN")
@@ -177,20 +180,17 @@ if __name__ == '__main__':
         
         jq = app.job_queue
 
-        # FIX 1: Gunakan fungsi async formal untuk Morning Briefing
         async def run_morning_briefing(context: ContextTypes.DEFAULT_TYPE):
             chat_id = os.getenv("YOUR_CHAT_ID")
             report = await generate_market_report("MORNING BRIEFING")
             await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
 
-        # Penjadwalan
         jq.run_daily(run_morning_briefing, time=time(hour=7, minute=0, tzinfo=WIB))
         jq.run_repeating(news_monitor_job, interval=60)
         jq.run_repeating(intelligence_monitor_job, interval=60)
         jq.run_repeating(session_alert_job, interval=3600)
         jq.run_daily(weekly_report_job, time=time(hour=23, minute=0, tzinfo=WIB), days=(4,))
 
-        # FIX 2: Perbaikan Command Handlers (Hapus Lambda yang bermasalah)
         async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[KeyboardButton("🔍 Cek Market"), KeyboardButton("📅 Jadwal News")], 
                         [KeyboardButton("🎯 Focus Mode"), KeyboardButton("🔔 Normal Mode")]]
@@ -202,10 +202,9 @@ if __name__ == '__main__':
 
         app.add_handler(CommandHandler('start', start_command))
         app.add_handler(CommandHandler('news', news_command))
-        app.add_handler(CommandHandler('cek', cek_context)) # Langsung pakai cek_context yang sudah ada
-        
+        app.add_handler(CommandHandler('cek', cek_context))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu_clicks))
         app.add_handler(CallbackQueryHandler(button_handler))
         
-        print("🔥 Bot Alpha Pro (Fixed & Fixed) Aktif!")
+        print("🔥 Bot Alpha Pro v.2026 Stable Aktif!")
         app.run_polling(bootstrap_retries=-1)
